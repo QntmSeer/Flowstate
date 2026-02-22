@@ -56,3 +56,11 @@ python stress_test_engine.py
 
 ## Current Status
 **Phase 1** (Discrete SLDS) and **Phase 2** (Continuous SDEs + Barcodes) are formally complete, mathematically guaranteed via the VEM benchmarking suite.
+
+---
+
+## About & Disclaimer
+**Flowstate is a highly experimental, exploratory project.** 
+While the underlying mathematical engines (Variational EM, Continuous-Discrete Kalman Filters, Neural SDEs) are implemented based on rigorous theoretical frameworks, their application to biological single-cell transcriptomic modeling in this repository involves significant assumptions. 
+
+The models presented here may be mathematically simplified or biologically unverified in certain complex real-world edge cases. This repository serves as a proof-of-concept for integrating complex continuous-time dynamics and lineage regularization into single-cell trajectory inference, and should not be used for critical clinical or diagnostic decisions without extensive further validation.
