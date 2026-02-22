@@ -68,3 +68,22 @@ Flowstate successfully processes unaligned single-cell trajectories like the **M
 While the underlying mathematical engines (Variational EM, Continuous-Discrete Kalman Filters, Neural SDEs) are implemented based on rigorous theoretical frameworks, their application to biological single-cell transcriptomic modeling in this repository involves significant assumptions. 
 
 The models presented here may be mathematically simplified or biologically unverified in certain complex real-world edge cases. This repository serves as a proof-of-concept for integrating complex continuous-time dynamics and lineage regularization into single-cell trajectory inference, and should not be used for critical clinical or diagnostic decisions without extensive further validation.
+
+---
+
+## References & Academic Context
+
+Flowstate synthesizes concepts across continuous-time generative modeling and computational biology. If you are exploring the theoretical foundations of this repository, consider reviewing the following seminal works:
+
+1. **Switching Linear Dynamical Systems (SLDS)**: 
+   - *Fox, E., Sudderth, E. B., Jordan, M. I., & Willsky, A. S. (2008). Nonparametric Bayesian learning of switching linear dynamical systems.*
+   - *Linderman, S. W., et al. (2016). Recurrent switching linear dynamical systems.*
+2. **Neural Stochastic Differential Equations (SDEs)**:
+   - *Li, X., Wong, T. K., Chen, R. T., & Duvenaud, D. (2020). Scalable gradients for stochastic differential equations.*
+3. **Continuous Trajectory Inference in CompBio**:
+   - *Saelens, W., Cannoodt, R., Todorov, H. et al. (2019). A comparison of single-cell trajectory inference methods. Nature Biotechnology.*
+4. **JAX & Diffrax Ecosystem**:
+   - *Kidger, P. (2021). On Neural Differential Equations. Ph.D. thesis, University of Oxford (Diffrax).*
+   - *Bradbury, J., et al. (2018). JAX: composable machine learning and numerical computing.*
+5. **Evaluation Dataset**:
+   - *Moignard, V., et al. (2015). Decoding the regulatory network of early blood development from single-cell gene expression measurements. Nature Biotechnology.*
