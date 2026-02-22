@@ -55,8 +55,17 @@ python stress_test_engine.py
 ```
 
 ### Real Biological Data Benchmarks
-Flowstate successfully processes unaligned single-cell trajectories like the **Moignard 2015 Hematopoiesis** differentiating dataset, extracting probabilistic differentiation stages without KNN graphs:
+Flowstate has been validated against two canonical, publicly available continuous differentiation datasets:
+
+**Moignard 2015 — Early Hematopoiesis (qPCR, 3,934 cells)**  
+Captures primitive streak → endothelium → blood development. Flowstate maps latent metastable programs from raw dCt expression values, with no KNN graph.
+
 ![Moignard Application](assets/real_data_moignard.png)
+
+**Paul 2015 — Myeloid Progenitor Bifurcation (scRNA-seq, 2,730 cells)**  
+The gold-standard benchmark dataset for trajectory inference. CMP cells bifurcate into divergent Erythroid (MEP) and Granulocyte/Macrophage (GMP) lineages. Flowstate discovers a highly stable terminal state (self-transition probability 0.982) consistent with committed differentiation — without user-defined branch labels.
+
+![Paul15 Application](assets/real_data_paul15.png)
 
 ## Current Status
 **Phase 1** (Discrete SLDS) and **Phase 2** (Continuous SDEs + Barcodes) are formally complete, mathematically guaranteed via the VEM benchmarking suite.
