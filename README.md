@@ -54,6 +54,10 @@ Flowstate comes with a rigorous end-to-end stress testing suite that ensures mat
 python stress_test_engine.py
 ```
 
+### Real Biological Data Benchmarks
+Flowstate successfully processes unaligned single-cell trajectories like the **Moignard 2015 Hematopoiesis** differentiating dataset, extracting probabilistic differentiation stages without KNN graphs:
+![Moignard Application](assets/real_data_moignard.png)
+
 ## Current Status
 **Phase 1** (Discrete SLDS) and **Phase 2** (Continuous SDEs + Barcodes) are formally complete, mathematically guaranteed via the VEM benchmarking suite.
 
