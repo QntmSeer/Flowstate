@@ -102,8 +102,7 @@ class VariationalEM:
             V_smooth = V_f_t + J_t @ (V_t_plus_1_smooth - V_p_t_plus_1) @ J_t.T
             V_smooth = 0.5 * (V_smooth + V_smooth.T)
             
-            # Cross-covariance Cov(z_{t}, z_{t-1} | X). Wait, RTS computes Cov(z_{t+1}, z_t)
-            # which is V_cross = V_{smooth, t+1} @ J_t.T
+            # Cross-covariance Cov(z_{t+1}, z_t | X) via the RTS smoother gain
             V_cross = V_t_plus_1_smooth @ J_t.T
             
             return (mu_smooth, V_smooth), (mu_smooth, V_smooth, V_cross)
@@ -306,11 +305,9 @@ class VariationalEM:
         sum_zz = jnp.sum(E_zz, axis=0)
         C_new = sum_xz @ jnp.linalg.inv(sum_zz + 1e-6 * jnp.eye(D_z))
         
-        # R = 1/T sum_t (x_t x_t^T - C E[z_t] x_t^T - x_t E[z_t]^T C^T + C E[z_t z_t^T] C^T)
-        # Assuming diagonal R for scRNA-seq (genes are conditionally independent given z)
-        # R_ii = 1/T sum_t ( x_{ti}^2 - 2 C_i E[z_t] x_{ti} + C_i E[z_t z_t^T] C_i^T )
+        # Diagonal R: genes are conditionally independent given z
         x_sq = jnp.sum(x ** 2, axis=0)
-        Cx_z = jnp.sum(2 * x * (mu_z @ C_new.T), axis=0) # Note: x * (mu_z @ C.T) is elementwise
+        Cx_z = jnp.sum(2 * x * (mu_z @ C_new.T), axis=0)
         # diag(C E_zz C^T) = sum_j sum_k C_ij E_zz_jk C_ik
         C_Ezz_C = jnp.einsum('ij, jk, ik -> i', C_new, sum_zz, C_new)
         
@@ -319,7 +316,7 @@ class VariationalEM:
         R_new = jnp.diag(jnp.maximum(R_diag, 1e-6))
         
         # Update mu_0, Sigma_0
-        mu_0_new = self.params.mu_0 # Keeping initial prior fixed for stability
+        mu_0_new = self.params.mu_0  # Initial prior kept fixed for numerical stability
         Sigma_0_new = self.params.Sigma_0
 
         new_params = SLDSParams(
@@ -360,17 +357,12 @@ class VariationalEM:
             # 3. M-step
             self.params = m_step_jit((mu_z, V_z, V_cross), (gamma, xi), x)
             
-            # Re-bind JIT functions since params have changed (or we could pass params as an arg)
+            # Re-bind JIT-compiled steps after params update
             e_step_continuous_jit = jax.jit(self.e_step_continuous)
             e_step_discrete_jit = jax.jit(self.e_step_discrete)
             m_step_jit = jax.jit(self.m_step)
             
-            # 4. Check convergence (using a proxy log-likelihood for now: the log margin from HMM)
-            # A full ELBO calculation is better but computationally heavy.
-            # We will use the change in parameters as a simple convergence check.
             print("Done")
-            
-            # Optionally check tol
             
         print("vEM Training Complete.")
         return expected_s, mu_z, V_z
