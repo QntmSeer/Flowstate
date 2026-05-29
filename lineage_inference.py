@@ -93,6 +93,11 @@ if __name__ == "__main__":
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 6), sharex=True, sharey=True)
 
+    # Force tick labels to be visible on both subplots despite sharing axes
+    for ax in axes:
+        ax.yaxis.set_tick_params(labelleft=True)
+        ax.xaxis.set_tick_params(labelbottom=True)
+
     scatter1 = axes[0].scatter(z_pca_std[:, 0], z_pca_std[:, 1], c=barcodes, cmap='tab10')
     axes[0].set_title("Standard Inference (Latent Space z)\nBarcodes scattered")
     plt.colorbar(scatter1, ax=axes[0])
