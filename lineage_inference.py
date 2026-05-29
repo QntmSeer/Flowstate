@@ -53,6 +53,11 @@ class LineageVariationalEM(VariationalEM):
             pulled_layers = vmap_pull(mu_z, unique_barcodes)
             mu_z_reg = jnp.sum(pulled_layers, axis=0)
 
+            # Rescale to prevent scale collapse of the latent space and growing emission matrix C
+            std_orig = jnp.std(mu_z)
+            std_reg = jnp.std(mu_z_reg)
+            mu_z_reg = mu_z_reg * (std_orig / (std_reg + 1e-12))
+
             # --- Discrete E-Step (HMM Forward-Backward) ---
             expected_z_stats = (mu_z_reg, V_z, V_cross)
             gamma, xi = self.e_step_discrete(expected_z_stats)
@@ -84,9 +89,9 @@ if __name__ == "__main__":
 
     pca = PCA(n_components=2)
     z_pca_std = pca.fit_transform(mu_std)
-    z_pca_lin = pca.fit_transform(mu_lin)
+    z_pca_lin = pca.transform(mu_lin)  # Project regularized data using the same PCA mapping
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6), sharex=True, sharey=True)
 
     scatter1 = axes[0].scatter(z_pca_std[:, 0], z_pca_std[:, 1], c=barcodes, cmap='tab10')
     axes[0].set_title("Standard Inference (Latent Space z)\nBarcodes scattered")
