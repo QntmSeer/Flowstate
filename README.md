@@ -38,6 +38,11 @@ Modern clonal lineage tags (LARRY, CellTagging) provide actual ground truth fami
 
 ![Lineage Barcode Penalty](assets/test_lineage_inference.png)
 
+### 4. Speculative Speculative SDE Integration (SSD-SDE)
+To break the sequential latency bottleneck of standard EKF filtering on long time-series, Flowstate implements parallelized drafting and verification. While the target solver is verifying the current step (using adaptive `Tsit5`), a cheap 1-step `Euler` draft pre-emptively calculates the next step. Accepted steps are aligned with the target filter via a first-order Taylor correction, ensuring exact mathematical equivalence.
+
+![Speculative EKF Benchmark](assets/benchmark_ssd.png)
+
 ## Installation & Tests
 
 Flowstate relies heavily on `jax`, `diffrax`, and `equinox`.
@@ -60,7 +65,7 @@ Flowstate has been validated against two canonical, publicly available continuou
 **Moignard 2015 — Early Hematopoiesis (qPCR, 3,934 cells)**  
 Captures primitive streak → endothelium → blood development. Flowstate maps latent metastable programs from raw dCt expression values, with no KNN graph.
 
-![Moignard Application](assets/real_data_moignard.png)
+![Moignard Application](assets/real_data_sde.png)
 
 **Paul 2015 — Myeloid Progenitor Bifurcation (scRNA-seq, 2,730 cells)**  
 The gold-standard benchmark dataset for trajectory inference. CMP cells bifurcate into divergent Erythroid (MEP) and Granulocyte/Macrophage (GMP) lineages. Flowstate discovers a highly stable terminal state (self-transition probability 0.982) consistent with committed differentiation — without user-defined branch labels.
