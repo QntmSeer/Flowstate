@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/flowstate_logo.png" width="160" alt="Flowstate Logo">
+</p>
+
 # Flowstate
 **A Hybrid Dynamical Systems Engine for Cellular State Modeling**
 
