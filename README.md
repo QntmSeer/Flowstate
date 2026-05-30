@@ -76,6 +76,12 @@ The gold-standard benchmark dataset for trajectory inference. CMP cells bifurcat
 
 ![Paul15 Application](assets/real_data_paul15.png)
 
+**Krumsiek 2011 — Myeloid Progenitor Branching (qPCR, 640 cells)**  
+Captures the multi-lineage branching trajectory of myeloid progenitors into Megakaryocyte (Mk), Erythroid (Ery), Monocyte (Mo), and Neutrophil (Neu) fates. Using Diffusion Pseudotime (DPT) as a continuous-time proxy, Flowstate successfully models the complex branching structure, learning distinct continuous neural vector fields in 2D latent space that drive progenitors towards their terminal fates.
+
+![Krumsiek11 Application](assets/real_data_krumsiek11.png)
+
+
 ## Current Status
 **Phase 1** (Discrete SLDS) and **Phase 2** (Continuous SDEs + Barcodes) are formally complete, mathematically guaranteed via the VEM benchmarking suite.
 
@@ -103,5 +109,8 @@ Flowstate synthesizes concepts across continuous-time generative modeling and co
 4. **JAX & Diffrax Ecosystem**:
    - *Kidger, P. (2021). On Neural Differential Equations. Ph.D. thesis, University of Oxford (Diffrax).*
    - *Bradbury, J., et al. (2018). JAX: composable machine learning and numerical computing.*
-5. **Evaluation Dataset**:
+5. **Evaluation Datasets**:
    - *Moignard, V., et al. (2015). Decoding the regulatory network of early blood development from single-cell gene expression measurements. Nature Biotechnology.*
+   - *Paul, F., et al. (2015). Transcriptional heterogeneity and lineage commitment in myeloid progenitors. Cell.*
+   - *Krumsiek, J., et al. (2011). Hierarchical differentiation of myeloid progenitors is governed by a binary regulatory network. PLOS ONE.*
+
