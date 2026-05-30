@@ -3,107 +3,119 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
+import equinox as eqx
 
-from stateflow.core import SLDSParams
-from stateflow.inference import VariationalEM
+# Import our package modules
+from stateflow.sde_core import NeuralSLDS
+from stateflow.sde_em import HybridSDEFit
 
-def analyze_paul15():
-    print("Loading Paul 2015 Myeloid Progenitor Dataset...")
-    # This dataset contains ~2730 cells from the bone marrow.
-    # It details the continuous bifurcation of 
-    # CMP (Common Myeloid Progenitor) -> MEP (Erythroid) and GMP (Granulocyte/Macrophage)
+def main():
+    print("1. Loading Paul 2015 Myeloid Progenitor Dataset...")
+    # This dataset contains ~2730 cells continuously differentiating
     adata = sc.datasets.paul15()
     
     # Preprocessing
     print("Preprocessing data...")
-    # sc.pp.filter_genes(adata, min_cells=10)
+    adata.X = adata.X.astype(np.float32)
     sc.pp.normalize_total(adata, target_sum=1e4)
     sc.pp.log1p(adata)
     
-    # Select highly variable genes to reduce D_x to a manageable number for SLDS
-    print("Selecting top 100 Highly Variable Genes for SDE computational speed...")
+    # Select highly variable genes
     sc.pp.highly_variable_genes(adata, n_top_genes=100)
     adata = adata[:, adata.var.highly_variable]
-    
-    # Scale data to N(0, 1) for stable SLDS inference
     sc.pp.scale(adata, max_value=10)
     
-    x_real = adata.X
-    T_cells, D_x = x_real.shape
+    print("Computing PCA...")
+    sc.tl.pca(adata, svd_solver='arpack', n_comps=20)
     
-    print("Computing pseudotime ordering via PCA/Diffusion Maps...")
-    sc.tl.pca(adata, svd_solver='arpack')
-    
-    # For a bifurcation, sorting purely by PC1 isn't perfect, but it suffices 
-    # to give the EM filter a rough "time" ordering to work with.
-    # A true implementation would use Diffusion Pseudotime (DPT) from a root cell.
-    # For demonstration, we'll sort by PC1.
+    # Order cells by PC1 as a proxy for developmental pseudotime
     time_order = np.argsort(adata.obsm['X_pca'][:, 0])
-    x_ordered = jnp.array(x_real[time_order])
     
-    # Initialize StateFlow Model
-    K = 3     # 3 metastable states: CMP, MEP, GMP
-    D_z = 5   # Latent regulatory dimension
+    # We will use the top 3 PCs as our observations (D_x = 3)
+    x_obs = jnp.array(adata.obsm['X_pca'][time_order, :3])
+    T_cells, D_x = x_obs.shape
     
-    print(f"Initializing Variational EM (K={K}, D_z={D_z}, D_x={D_x})...")
+    # Set pseudotime range from 0 to 10
+    ts = adata.obsm['X_pca'][time_order, 0]
+    ts = (ts - ts.min()) / (ts.max() - ts.min()) * 10.0
+    ts = jnp.array(ts)
+    
+    K = 3   # 3 cell programs: CMP (Stem), MEP (Erythroid), GMP (Myeloid/Granulocyte)
+    D_z = 2 # 2D latent space to easily visualize the learned vector fields
+    
+    print(f"Initializing Neural SDE Model (K={K}, D_z={D_z}, D_x={D_x})...")
     key = jax.random.PRNGKey(42)
-    k1, k2, k3, k4 = jax.random.split(key, 4)
+    k1, k2 = jax.random.split(key)
     
-    pi_init = jnp.ones(K) / K
-    A_init = jnp.ones((K, K)) / K + jnp.eye(K) * 2.0
-    A_init = A_init / jnp.sum(A_init, axis=1, keepdims=True)
+    # Set up model and initial parameters (using width=64 depth=2 MLPs)
+    sde_model = NeuralSLDS(K, D_z, k1)
     
-    A_s_init = jnp.tile(jnp.eye(D_z)*0.9, (K, 1, 1))
-    Q_s_init = jnp.tile(jnp.eye(D_z)*0.1, (K, 1, 1))
-    C_init = jax.random.normal(k3, (D_x, D_z)) * 0.1
-    R_init = jnp.eye(D_x) * jnp.var(x_ordered, axis=0) + 1e-4*jnp.eye(D_x)
-    mu_0_init = jnp.zeros((K, D_z))
-    Sigma_0_init = jnp.tile(jnp.eye(D_z), (K, 1, 1))
+    # Initialize emission mapping C (3 -> 2) and noise R
+    C = jax.random.normal(k2, (D_x, D_z)) * 0.5
+    R = jnp.eye(D_x) * 0.5
     
-    params_init = SLDSParams(pi_init, A_init, A_s_init, Q_s_init, C_init, R_init, mu_0_init, Sigma_0_init)
+    # Initialize fitter
+    fitter = HybridSDEFit(sde_model, C, R, K, D_z)
     
-    vem = VariationalEM(params_init)
+    # Run EM + Optax gradient loop (using optimized fixed-step solver)
+    max_iter = 5
+    print(f"Fitting Nonlinear Neural SDE (EM/Optax) on Paul15 for {max_iter} iterations...")
+    expected_s, fitted_model = fitter.fit(x_obs, ts, max_iter=max_iter)
     
-    print("Fitting model to Paul15 data...")
-    exp_s, mu_z, V_z = vem.fit(x_ordered, max_iter=8) # 8 iterations for speed
+    # Get final inferred states
+    inferred_states = np.argmax(expected_s, axis=1)
     
-    print("\n--- INFERRED DISCRETE MARKOV TRANSITIONS ---")
-    with jnp.printoptions(precision=3, suppress=True):
-        print(vem.params.A)
-        
-    print("\nPlotting Results...")
-    inferred_states = np.argmax(exp_s, axis=1)
-    
-    # We will compute a UMAP for visualization, colored by inferred states
     print("Computing UMAP for visualization...")
     sc.pp.neighbors(adata, n_neighbors=10, n_pcs=20)
     sc.tl.umap(adata)
-    
     umap_coords = adata.obsm['X_umap']
     
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-    
-    # Plot 1: True Clusters (Paul15 provides cluster integers 1-19)
-    true_clusters = adata.obs['paul15_clusters']
-    cluster_codes = true_clusters.cat.codes.values if hasattr(true_clusters, 'cat') else np.array(true_clusters).astype('category').codes
-    axes[0].scatter(umap_coords[:, 0], umap_coords[:, 1], c=cluster_codes, cmap='tab20', s=10)
-    axes[0].set_title("Paul 2015 Myeloid Bifurcation\n(Colored by 19 True Micro-Clusters)")
-    
-    # Plot 2: StateFlow Inferred Macro-States
-    # We must unordered the inferred states back to original indices
-    # time_order maps new_idx -> old_idx.
-    # We want: original_array[time_order] = inferred_states
-    
+    # Unorder the inferred states back to original cell indices
     original_inferred = np.zeros(T_cells, dtype=int)
     original_inferred[time_order] = inferred_states
     
-    scatter = axes[1].scatter(umap_coords[:, 0], umap_coords[:, 1], c=original_inferred, cmap='viridis', s=15, alpha=0.8)
-    axes[1].set_title("Flowstate Inferred Macro-Trajectories\n(3 States: e.g. Stem, Erythroid, Granulocyte)")
-    plt.colorbar(scatter, ax=axes[1], label='Inferred State (K)')
+    print("Plotting results & learned vector fields...")
+    fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+    
+    # Plot 1: UMAP colored by inferred states
+    scatter = axes[0].scatter(umap_coords[:, 0], umap_coords[:, 1], c=original_inferred, cmap='viridis', alpha=0.8, s=15)
+    axes[0].set_title("Paul 2015 Myeloid Bifurcation\n(UMAP colored by SDE Inferred Macro-States)", fontsize=14)
+    axes[0].set_xlabel("UMAP 1", fontsize=12)
+    axes[0].set_ylabel("UMAP 2", fontsize=12)
+    cbar = plt.colorbar(scatter, ax=axes[0])
+    cbar.set_label("Inferred State ID", fontsize=11)
+    
+    # Plot 2: Discovered Nonlinear Dynamical Vector Fields in Latent Space
+    grid_lim = 2.0
+    x_grid = np.linspace(-grid_lim, grid_lim, 20)
+    y_grid = np.linspace(-grid_lim, grid_lim, 20)
+    X, Y = np.meshgrid(x_grid, y_grid)
+    grid_points = np.stack([X.flatten(), Y.flatten()], axis=1)
+    grid_jnp = jnp.array(grid_points)
+    
+    colors = [(1.0, 0.0, 0.0, 0.6), (0.0, 0.6, 0.0, 0.6), (0.0, 0.0, 1.0, 0.6)]
+    state_names = ["CMP (Stem) Flow", "MEP (Erythroid) Flow", "GMP (Myeloid) Flow"]
+    
+    for k in range(K):
+        mlp = fitted_model.drift.mlps[k]
+        drifts = jax.vmap(mlp)(grid_jnp)
+        U = np.array(drifts[:, 0]).reshape(X.shape)
+        V = np.array(drifts[:, 1]).reshape(Y.shape)
+        
+        axes[1].streamplot(X, Y, U, V, color=colors[k], density=0.8, arrowsize=1.2, linewidth=1.0)
+        axes[1].plot([], [], color=colors[k][:3], label=f"State {k}: {state_names[k]}")
+        
+    axes[1].set_title("Discovered Nonlinear Latent Dynamics\n(Vector Fields/Flows per Cell State)", fontsize=14)
+    axes[1].set_xlabel("Latent Coordinate $z_0$", fontsize=12)
+    axes[1].set_ylabel("Latent Coordinate $z_1$", fontsize=12)
+    axes[1].set_xlim(-grid_lim, grid_lim)
+    axes[1].set_ylim(-grid_lim, grid_lim)
+    axes[1].legend(loc="upper right", fontsize=10)
+    axes[1].grid(True, linestyle='--', alpha=0.3)
     
     plt.tight_layout()
-    plt.savefig('real_data_paul15.png')
-    print("Saved real_data_paul15.png")
+    plt.savefig('assets/real_data_paul15.png', dpi=150)
+    print("Saved assets/real_data_paul15.png successfully!")
 
 if __name__ == "__main__":
-    analyze_paul15()
+    main()
