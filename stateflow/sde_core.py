@@ -6,55 +6,85 @@ import diffrax
 class SwitchableDrift(eqx.Module):
     """
     Parametrizes the continuous drift vector field f(z, s).
-    For each discrete state s (k in 1..K), we have a different linear or non-linear drift.
-    Currently implements a linear drift per state: f(z, k) = A_k z + b_k
+    For each discrete state s (k in 1..K), we have a different non-linear drift.
+    Implements an Equinox MLP per state.
     """
-    A_s: jnp.ndarray
-    b_s: jnp.ndarray
+    mlps: tuple
+    K: int
+    D_z: int
 
     def __init__(self, K, D_z, key):
-        keys = jax.random.split(key, 2)
-        # Random initializations near stable origins
-        self.A_s = jax.random.normal(keys[0], (K, D_z, D_z)) * 0.1 - jnp.eye(D_z) * 0.5
-        self.b_s = jax.random.normal(keys[1], (K, D_z)) * 0.1
+        self.K = K
+        self.D_z = D_z
+        keys = jax.random.split(key, K)
+        # Initialize an MLP for each of the K states.
+        # We use a smooth activation function (softplus) so derivatives/Jacobians are stable.
+        self.mlps = tuple([
+            eqx.nn.MLP(
+                in_size=D_z,
+                out_size=D_z,
+                width_size=64,
+                depth=2,
+                activation=jax.nn.softplus,
+                key=keys[k]
+            )
+            for k in range(K)
+        ])
 
     def __call__(self, t, z, args):
         """
-        args contains the current active discrete program (one-hot encoded or integer)
-        For differentiability and expected statistics, we can take a softmax-weighted sum
-        over the state drifts if `expected_s` is passed instead of a hard assignment.
+        args contains the current active discrete program probabilities (K,)
         """
         s_prob = args  # Expecting shape (K,) probabilities
         
-        # Drift if in state k: A_k @ z + b_k
-        def per_state_drift(k):
-            return self.A_s[k] @ z + self.b_s[k]
-        
-        # Weighted mixture of drifts based on state probabilities
-        drifts = jax.vmap(per_state_drift)(jnp.arange(self.A_s.shape[0]))
+        # Evaluate each state-specific MLP on z
+        drifts = jnp.stack([mlp(z) for mlp in self.mlps])  # (K, D_z)
         expected_drift = jnp.average(drifts, weights=s_prob, axis=0)
         
         return expected_drift
 
+    def get_jacobians(self, z):
+        """
+        Computes the Jacobian matrices df_k/dz at z for all states k.
+        Returns: (K, D_z, D_z)
+        """
+        jacs = jnp.stack([jax.jacfwd(mlp)(z) for mlp in self.mlps])
+        return jacs
+
+
 class SwitchableDiffusion(eqx.Module):
     """
-    Parametrizes the stochastic diffusion matrix g(z, s).
-    Implements constant within-state noise Q_k.
+    Parametrizes the stochastic diffusion matrix g(z, s) using MLPs.
+    Outputs a diagonal noise matrix where diagonals are strictly positive.
     """
-    Q_s_chol: jnp.ndarray # Cholesky factor for positive semi-definiteness
+    mlps: tuple
+    K: int
+    D_z: int
     
     def __init__(self, K, D_z, key):
-        # Initialize as diagonal process noise
-        self.Q_s_chol = jax.random.uniform(key, (K, D_z)) * 0.1 + 0.1
+        self.K = K
+        self.D_z = D_z
+        keys = jax.random.split(key, K)
+        # Initialize an MLP for each of the K states.
+        # The output represents the diagonal of the diffusion matrix.
+        self.mlps = tuple([
+            eqx.nn.MLP(
+                in_size=D_z,
+                out_size=D_z,
+                width_size=64,
+                depth=2,
+                activation=jax.nn.softplus,
+                key=keys[k]
+            )
+            for k in range(K)
+        ])
 
     def __call__(self, t, z, args):
         s_prob = args # (K,)
-        # Diagonal noise scaled by state probabilities
-        def per_state_diffusion(k):
-            return jnp.diag(self.Q_s_chol[k])
-            
-        diffusions = jax.vmap(per_state_diffusion)(jnp.arange(self.Q_s_chol.shape[0]))
-        # We square the weights because they are variances? Actually, for linear expected value:
+        
+        # Evaluate each state-specific diffusion MLP on z using static list comprehension
+        diags = jnp.stack([jax.nn.softplus(mlp(z)) for mlp in self.mlps]) # (K, D_z)
+        diffusions = jax.vmap(jnp.diag)(diags) # (K, D_z, D_z)
         expected_diff = jnp.average(diffusions, weights=s_prob, axis=0)
         
         return expected_diff

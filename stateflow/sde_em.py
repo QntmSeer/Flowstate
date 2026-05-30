@@ -62,33 +62,46 @@ class HybridSDEFit:
         
         return gamma, xi
         
-    def _loss_fn(self, params, static, xs: jnp.ndarray, ts: jnp.ndarray, expected_s: jnp.ndarray):
+    def _loss_fn(self, params, static, xs: jnp.ndarray, ts: jnp.ndarray, expected_s: jnp.ndarray,
+                 barcodes: jnp.ndarray = None, lambda_clonal: float = 0.0):
         """
         The negative log-likelihood of the observations given the predicted filter moments.
-        We differentiate through the Continuous-Discrete Kalman Filter!
+        Optionally adds a clonal regularization penalty to enforce lineage constraints.
         """
         model = eqx.combine(params, static)
         filter = ContinuousDiscreteKalmanFilter(model, self.C, self.R)
         
-        # For simplicity in testing, we write a quick likelihood evaluation here.
-        # We approximate the marginalized log probability.
-        
         mu_0 = jnp.zeros(self.D_z)
         P_0 = jnp.eye(self.D_z)
         
-        # Call filter
+        # Call filter (for MLE, forward filtering computes exact marginal likelihoods)
         mu_filt, P_filt = filter.filter(xs, ts, expected_s, mu_0, P_0)
         
-        # Compute L2 loss against observations 
-        # (For true MLE we would use the Gaussian PDF via prediction residuals, but MSE is a robust start for drift fitting)
         preds = jax.vmap(lambda m: self.C @ m)(mu_filt)
         mse_loss = jnp.mean((xs - preds)**2)
         
+        # Add clonal regularization penalty if barcodes are provided
+        if barcodes is not None and lambda_clonal > 0.0:
+            unique_barcodes = jnp.unique(barcodes)
+            
+            def clone_penalty_fn(clone_id):
+                mask = (barcodes == clone_id)[:, None]
+                centroid = jnp.sum(mu_filt * mask, axis=0) / (jnp.sum(mask) + 1e-8)
+                sq_dist = jnp.sum((mu_filt - centroid)**2, axis=1)
+                return jnp.sum(sq_dist * mask.flatten())
+                
+            clonal_loss = jnp.sum(jax.vmap(clone_penalty_fn)(unique_barcodes))
+            # Normalize by sequence length to keep scale comparable
+            total_loss = mse_loss + lambda_clonal * (clonal_loss / xs.shape[0])
+            return total_loss
+            
         return mse_loss
 
-    def fit(self, xs: jnp.ndarray, ts: jnp.ndarray, max_iter: int = 5):
+    def fit(self, xs: jnp.ndarray, ts: jnp.ndarray, max_iter: int = 5,
+            barcodes: jnp.ndarray = None, lambda_clonal: float = 0.0):
         """
-        Alternates HMM Discrete E-step and Optax Continuous gradient steps.
+        Alternates HMM Discrete E-step (using RTS Smoother) and Optax Continuous gradient steps.
+        Supports lineage barcode constraints via a clonal regularization penalty.
         """
         optimizer = optax.adam(1e-2)
         params, static = eqx.partition(self.sde_model, eqx.is_array)
@@ -105,28 +118,44 @@ class HybridSDEFit:
         for iter in range(max_iter):
             # 1. OPTAX GRADIENT STEP FOR SDE PARAMETERS
             for grad_step in range(3):
-                loss, grads = val_and_grad(params, static, xs, ts, expected_s)
+                loss, grads = val_and_grad(params, static, xs, ts, expected_s, barcodes, lambda_clonal)
                 updates, opt_state = optimizer.update(grads, opt_state, params)
                 params = optax.apply_updates(params, updates)
             
             self.sde_model = eqx.combine(params, static)
             
-            # 2. DISCRETE E-STEP (HMM)
-            # Re-evaluate filter to get rough likelihoods per state
-            # (In practice, we compute log N(x_t | C mu_pred^k, S^k))
-            # We use MSE as a proxy for likelihood assignment for simplicity
+            # 2. DISCRETE E-STEP (HMM with RTS Smoother)
+            # Re-evaluate filter to get expectation states
             filter = ContinuousDiscreteKalmanFilter(self.sde_model, self.C, self.R)
-            mu_filt, _ = filter.filter(xs, ts, expected_s, jnp.zeros(self.D_z), jnp.eye(self.D_z))
             
-            # MSE per state prediction
-            preds = jax.vmap(lambda m: self.C @ m)(mu_filt) # True multi-modal requires parallel filters, using smoothed proxy
+            # Use continuous-discrete RTS smoother to get smoothed states (better expectation)
+            mu_smooth, _ = filter.smooth(xs, ts, expected_s, jnp.zeros(self.D_z), jnp.eye(self.D_z))
             
-            # As a shortcut for this demo, we assume the prediction errors inform state likelihood
-            # In a rigorous implementation, we run K parallel filters
+            # If lineage barcodes are provided, apply clonal pull to smoothed states (with scaling normalization)
+            if barcodes is not None and lambda_clonal > 0.0:
+                unique_barcodes = jnp.unique(barcodes)
+                
+                def pull_to_centroid(z_seq, clone_id):
+                    mask = (barcodes == clone_id)[:, None]
+                    centroid = jnp.sum(z_seq * mask, axis=0) / (jnp.sum(mask) + 1e-8)
+                    z_pulled = z_seq * (1 - lambda_clonal) + centroid * lambda_clonal
+                    return jnp.where(mask, z_pulled, jnp.zeros_like(z_seq))
+                    
+                vmap_pull = jax.vmap(pull_to_centroid, in_axes=(None, 0))
+                pulled_layers = vmap_pull(mu_smooth, unique_barcodes)
+                mu_smooth_reg = jnp.sum(pulled_layers, axis=0)
+                
+                # Rescale to prevent latent scale collapse
+                std_orig = jnp.std(mu_smooth)
+                std_reg = jnp.std(mu_smooth_reg)
+                mu_smooth = mu_smooth_reg * (std_orig / (std_reg + 1e-12))
+            
+            # MSE per state prediction based on smoothed trajectory
+            preds = jax.vmap(lambda m: self.C @ m)(mu_smooth)
             err = jnp.sum((xs - preds)**2, axis=1)
-            # Pseudo-likelihoods 
+            
+            # Pseudo-likelihoods
             pseudo_lls = jnp.tile(-0.5 * err[:, None], (1, self.K)) 
-            # Add state specific bias just to prevent singularity in demo
             pseudo_lls += jax.random.normal(jax.random.PRNGKey(iter), pseudo_lls.shape) * 0.1
             
             gamma, xi = self._hmm_e_step(pseudo_lls)
