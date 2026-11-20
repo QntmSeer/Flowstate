@@ -32,6 +32,14 @@ def test_sde_em():
     
     print("Running EM Fitting Loop (3 iterations)...")
     expected_s, fitted_model = fitter.fit(xs, ts, max_iter=3)
+
+    assert expected_s.shape == (T, K), f"Unexpected expected_s shape: {expected_s.shape}"
+    assert bool(jnp.all(jnp.isfinite(expected_s))), "expected_s contains NaN or Inf"
+    assert bool(jnp.allclose(jnp.sum(expected_s, axis=1), 1.0, atol=1e-4)), "expected_s rows must sum to 1"
+    assert fitter.A.shape == (K, K), f"Unexpected transition matrix shape: {fitter.A.shape}"
+    assert bool(jnp.all(jnp.isfinite(fitter.A))), "Transition matrix contains NaN or Inf"
+    assert bool(jnp.all((fitter.A >= 0.0) & (fitter.A <= 1.0 + 1e-6))), "Transition probabilities out of [0, 1]"
+    assert bool(jnp.allclose(jnp.sum(fitter.A, axis=1), 1.0, atol=1e-4)), "Transition matrix rows must sum to 1"
     
     print("\n--- FINAL DISCRETE TRANSITION MATRIX (A) ---")
     with jnp.printoptions(precision=3, suppress=True):

@@ -1,5 +1,6 @@
 import jax
 import jax.numpy as jnp
+import numpy as np
 import matplotlib.pyplot as plt
 
 from stateflow.sde_core import NeuralSLDS
@@ -16,8 +17,7 @@ def test_sde_inference():
     key = jax.random.PRNGKey(42)
     sde_model = NeuralSLDS(K, D_z, key)
     
-    # Let's create an observation matrix C and R
-    C = jnp.eye(D_x, D_z) * np.array([1.0, 1.0, 0.0, 0.0, 0.0])[:, None] # Only observe first 2 dims
+    # Observation matrix C and noise covariance R
     C = jax.random.normal(key, (D_x, D_z))
     R = jnp.eye(D_x) * 0.1
     
@@ -49,6 +49,16 @@ def test_sde_inference():
     # Wait, the class filter() function is missing import numpy as np and jax.lax inside logic.
     # We will test the class directly.
     mu_filt, P_filt = filter.filter(x_obs, ts, expected_s, mu_0, P_0)
+
+    assert mu_filt.shape == (T, D_z), f"Unexpected mu_filt shape: {mu_filt.shape}"
+    assert P_filt.shape == (T, D_z, D_z), f"Unexpected P_filt shape: {P_filt.shape}"
+    assert bool(jnp.all(jnp.isfinite(mu_filt))), "Filtered means contain NaN or Inf"
+    assert bool(jnp.all(jnp.isfinite(P_filt))), "Filtered covariances contain NaN or Inf"
+    assert bool(jnp.all(jnp.diagonal(P_filt, axis1=1, axis2=2) > 0)), "Covariance diagonal must be positive"
+
+    # Skip initial transient (first 5 steps) when checking trajectory recovery
+    rmse = float(jnp.sqrt(jnp.mean((mu_filt[5:] - z_true[5:]) ** 2)))
+    assert rmse < 1.0, f"Kalman filter failed to recover simulated trajectory (RMSE={rmse:.4f})"
     
     print("Plotting results...")
     plt.figure(figsize=(10, 6))
@@ -76,8 +86,8 @@ def test_sde_inference():
     
     plt.tight_layout()
     plt.savefig('test_sde_inference.png')
+    plt.close()
     print("Saved test_sde_inference.png")
 
 if __name__ == "__main__":
-    import numpy as np
     test_sde_inference()

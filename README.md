@@ -42,8 +42,8 @@ Modern clonal lineage tags (LARRY, CellTagging) provide actual ground truth fami
 
 ![Lineage Barcode Penalty](assets/test_lineage_inference.png)
 
-### 4. Speculative Speculative SDE Integration (SSD-SDE)
-To break the sequential latency bottleneck of standard EKF filtering on long time-series, Flowstate implements parallelized drafting and verification. While the target solver is verifying the current step (using adaptive `Tsit5`), a cheap 1-step `Euler` draft pre-emptively calculates the next step. Accepted steps are aligned with the target filter via a first-order Taylor correction, ensuring exact mathematical equivalence.
+### 4. Speculative SDE Integration (SSD-SDE)
+To break the sequential latency bottleneck of standard EKF filtering on long time-series, Flowstate implements parallelized drafting and verification. While the target solver is verifying the current step (using adaptive `Tsit5`), a cheap 1-step `Euler` draft pre-emptively calculates the next step. Accepted steps are aligned with the target filter via a first-order Taylor correction, providing a first-order approximation to the target filter trajectory.
 
 ![Speculative EKF Benchmark](assets/benchmark_ssd.png)
 
@@ -57,14 +57,17 @@ cd Flowstate
 pip install -e .
 ```
 
-Flowstate comes with a rigorous end-to-end stress testing suite that ensures mathematical validity across the discrete EM, the barcode regularizer, and the Optax SDE gradient integrations.
+Flowstate includes test scripts covering discrete variational EM, continuous-time Neural SDE simulation, Continuous-Discrete Kalman filtering, and hybrid SDE EM fitting:
 
 ```bash
-python stress_test_engine.py
+python test_inference.py
+python test_sde.py
+python test_sde_inference.py
+python test_sde_em.py
 ```
 
 ### Real Biological Data Benchmarks
-Flowstate has been validated against two canonical, publicly available continuous differentiation datasets:
+Flowstate has been validated against three canonical, publicly available continuous differentiation datasets:
 
 **Moignard 2015 — Early Hematopoiesis (qPCR, 3,934 cells)**  
 Captures primitive streak → endothelium → blood development. Flowstate maps latent metastable programs from raw dCt expression values, with no KNN graph.

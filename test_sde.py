@@ -51,6 +51,13 @@ def test_sde_forward():
     
     # Also get multiple samples
     multi_run = jax.vmap(_run)(jax.random.split(jax.random.PRNGKey(999), 10))
+
+    assert ys.shape == (len(ts), D_z), f"Unexpected ys shape: {ys.shape}"
+    assert multi_run.shape == (10, len(ts), D_z), f"Unexpected multi_run shape: {multi_run.shape}"
+    assert bool(jnp.all(jnp.isfinite(ys))), "Simulated SDE trajectory contains NaN or Inf"
+    assert bool(jnp.all(jnp.isfinite(multi_run))), "Batched SDE trajectories contain NaN or Inf"
+    assert bool(jnp.allclose(ys[0], z0, atol=1e-5)), "SDE trajectory must start at z0"
+    assert float(jnp.std(multi_run[:, -1, :])) > 0.0, "Stochastic SDE samples must exhibit non-zero variance"
     
     print("Plotting continuous time trajectory...")
     plt.figure(figsize=(10, 5))

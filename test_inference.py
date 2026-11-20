@@ -33,6 +33,13 @@ def main():
     print(f"mu_z shape: {mu_z.shape} (Expected: {T_actual, D_z})")
     print(f"V_z shape: {V_z.shape} (Expected: {T_actual, D_z, D_z})")
     print(f"V_z_cross shape: {V_z_cross.shape} (Expected: {T_actual-1, D_z, D_z})")
+
+    assert mu_z.shape == (T_actual, D_z), f"Unexpected mu_z shape: {mu_z.shape}"
+    assert V_z.shape == (T_actual, D_z, D_z), f"Unexpected V_z shape: {V_z.shape}"
+    assert V_z_cross.shape == (T_actual - 1, D_z, D_z), f"Unexpected V_z_cross shape: {V_z_cross.shape}"
+    assert bool(jnp.all(jnp.isfinite(mu_z))), "Smoothed trajectory contains NaN or Inf"
+    rmse_z = float(jnp.sqrt(jnp.mean((mu_z - z_traj) ** 2)))
+    assert rmse_z < 0.5, f"Kalman smoother failed to recover simulated trajectory (RMSE={rmse_z:.4f})"
     
     # Plot real z_traj vs inferred mu_z
     fig, axes = plt.subplots(D_z, 1, figsize=(10, 10), sharex=True)
@@ -64,6 +71,10 @@ def main():
     
     print(f"gamma shape: {gamma.shape} (Expected: {T_actual, K})")
     print(f"xi shape: {xi.shape} (Expected: {T_actual-1, K, K})")
+
+    assert gamma.shape == (T_actual, K), f"Unexpected gamma shape: {gamma.shape}"
+    assert xi.shape == (T_actual - 1, K, K), f"Unexpected xi shape: {xi.shape}"
+    assert bool(jnp.allclose(jnp.sum(gamma, axis=1), 1.0, atol=1e-4)), "HMM posteriors must sum to 1"
     
     # Plot true states vs inferred probabilities
     fig, axes = plt.subplots(K, 1, figsize=(10, 6), sharex=True)
@@ -96,6 +107,10 @@ def main():
     
     vem_full = VariationalEM(perturbed_params)
     expected_s, mu_z_fit, V_z_fit = vem_full.fit(x_traj, max_iter=5)
+
+    assert expected_s.shape == (T_actual, K), f"Unexpected expected_s shape: {expected_s.shape}"
+    assert bool(jnp.all(jnp.isfinite(mu_z_fit))), "vEM fitted trajectory contains NaN or Inf"
+    assert bool(jnp.allclose(jnp.sum(expected_s, axis=1), 1.0, atol=1e-4)), "vEM state posteriors must sum to 1"
     
     # Plot final fitted inferred probabilities
     fig, axes = plt.subplots(K, 1, figsize=(10, 6), sharex=True)
