@@ -7,7 +7,7 @@ name = "stateflow"
 version = "0.1.0"
 description = "A Hybrid Dynamical Systems Engine for Cellular State Modeling."
 authors = [
-    { name="Antigravity", email="user@example.com" },
+    { name="QntmSeer", email="qntmqrks@gmail.com" },
 ]
 readme = "README.md"
 requires-python = ">=3.10"
@@ -26,7 +26,7 @@ dependencies = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/user/stateflow"
+"Homepage" = "https://github.com/QntmSeer/Flowstate"
 
 [tool.setuptools]
 packages = ["stateflow"]
